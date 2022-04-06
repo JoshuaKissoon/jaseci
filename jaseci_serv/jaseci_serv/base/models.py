@@ -15,7 +15,7 @@ from jaseci.api.interface import interface
 class master(core_master):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.valid_configs += JASECI_CONFIGS
+        self._valid_configs += JASECI_CONFIGS
 
     @interface.private_api()
     def master_create(self, name: str, set_active: bool = True,
@@ -52,9 +52,6 @@ class master(core_master):
 
 
 class super_master(master, core_super):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.valid_configs = JASECI_CONFIGS
 
     @interface.admin_api()
     def master_createsuper(self, name: str, set_active: bool = True,
@@ -74,6 +71,20 @@ class super_master(master, core_super):
         else:
             return {'response': "Errors occurred",
                     'errors': serializer.errors}
+
+    @interface.admin_api()
+    def master_allusers(self, num: int = 0, start_idx: int = 0):
+        """
+        Returns info on a set of users, num specifies the number of users to
+        return and start idx specfies where to start
+        """
+        users = get_user_model().objects.all()
+        start = start_idx if start_idx else 0
+        end = start_idx + num if num else len(users)
+        ret = []
+        for i in users[start:end]:
+            ret.append({'user': i.email, 'jid': i.master.urn})
+        return ret
 
 
 class UserManager(BaseUserManager):
@@ -96,6 +107,12 @@ class UserManager(BaseUserManager):
 
         # Create user's root node
         user.master = master(h=user._h, name=email).id
+        if('set_sent_global' in extra_fields and
+           extra_fields['set_sent_global']):
+            user.master.sentinel_active_global()
+        if('create_graph' in extra_fields and
+           extra_fields['create_graph']):
+            user.master.graph_create()
         user._h.commit()
 
         user.save(using=self._db)

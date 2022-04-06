@@ -131,6 +131,21 @@ continue_stmt = \
     }
     """
 
+continue_stmt2 = \
+    """
+    walker init {
+        z=10;
+
+        while(z>=0){
+            z-=1;
+            if(z<5){
+                continue;
+            }
+            std.out("hello", z);
+        }
+    }
+    """
+
 destroy_disconn = \
     """
     node testnode {
@@ -283,9 +298,9 @@ sort_by_col = \
         lst=[['b', 333],['c',245],['a', 56]];
         std.out(lst);
         std.out(std.sort_by_col(lst, 0));
-        std.out(std.sort_by_col(lst, 0, 'reverse'));
+        std.out(std.sort_by_col(lst, 0, true));
         std.out(std.sort_by_col(lst, 1));
-        std.out(std.sort_by_col(lst, 1, 'reverse'));
+        std.out(std.sort_by_col(lst, 1, true));
     }
     """
 

@@ -25,31 +25,32 @@ class interface():
         self._pub_committer = None
 
     def assimilate_api(api_list, func, cmd_group=None,
-                       cli_args=None):
+                       cli_args=None, url_args=None):
         cmd_group = func.__name__.split(
             '_') if cmd_group is None else cmd_group
         api_list.append(
             {'fname': func.__name__, 'sig': signature(func),
              'doc': getdoc(func), 'groups': cmd_group,
-             'cli_args': cli_args if cli_args is not None else []})
+             'cli_args': cli_args if cli_args is not None else [],
+             'url_args': url_args if url_args is not None else [], })
         return func
 
-    def public_api(cmd_group=None, cli_args=None):
+    def public_api(cmd_group=None, cli_args=None, url_args=None):
         def decorator_func(func):
             return interface.assimilate_api(
-                interface._public_api, func, cmd_group, cli_args)
+                interface._public_api, func, cmd_group, cli_args, url_args)
         return decorator_func
 
-    def private_api(cmd_group=None, cli_args=None):
+    def private_api(cmd_group=None, cli_args=None, url_args=None):
         def decorator_func(func):
             return interface.assimilate_api(
-                interface._private_api, func, cmd_group, cli_args)
+                interface._private_api, func, cmd_group, cli_args, url_args)
         return decorator_func
 
-    def admin_api(cmd_group=None, cli_args=None):
+    def admin_api(cmd_group=None, cli_args=None, url_args=None):
         def decorator_func(func):
             return interface.assimilate_api(
-                interface._admin_api, func, cmd_group, cli_args)
+                interface._admin_api, func, cmd_group, cli_args, url_args)
         return decorator_func
 
     def cli_api(cmd_group=None, cli_args=None):
@@ -81,16 +82,18 @@ class interface():
                 else:
                     return glob_id
             return self.active_snt_id
-        if(param == 'gph' and self.active_gph_id):
-            return self.active_gph_id
-        if(param == 'nd' and self.active_gph_id):
-            return self.active_gph_id
+        if(param == 'gph' or param == 'nd'):
+            return self.active_gph_id if self.active_gph_id else \
+                self.interface_error('No default graph node available!')
         return None
 
-    def interface_error(self, err):
+    def interface_error(self, err, stack=None):
         """Standard error output to logger and api response"""
         logger.error(err)
-        return {'response': err, 'success': False, 'errors': [err]}
+        ret = {'response': err, 'success': False, 'errors': [err]}
+        if(stack):
+            ret['stack_trace'] = stack
+        return ret
 
     def general_interface_to_api(self, params, api_name):
         """
@@ -138,7 +141,12 @@ class interface():
 
             if (param_map[i] is None):
                 return self.interface_error(f'Invalid API args - {params}')
-        ret = getattr(_caller, api_name)(**param_map)
+        try:
+            ret = getattr(_caller, api_name)(**param_map)
+        except Exception as e:
+            import traceback as tb
+            return self.interface_error(
+                f'Internal Exception: {e}', stack=tb.format_exc())
         if(not is_jsonable(ret)):
             return self.interface_error(f'Non-JSON API ret {type(ret)}: {ret}')
         return ret
@@ -152,7 +160,7 @@ class interface():
         """
         param_map = {}
         if (not hasattr(self, api_name)):
-            logger.error(f'{api_name} not a valid API')
+            return self.interface_error(f'{api_name} not a valid API')
             return False
         func_sig = signature(getattr(self, api_name))
         for i in func_sig.parameters.keys():
@@ -167,7 +175,7 @@ class interface():
                 val = params[p_name]
             if (issubclass(p_type, element)):
                 if(val is None):
-                    logger.error(
+                    return self.interface_error(
                         f'No {p_type} value for {p_name} provided!')
                 val = self._h.get_obj(
                     'override', uuid.UUID(val), override=True)
@@ -175,17 +183,22 @@ class interface():
                 if (isinstance(val, p_type)):
                     param_map[i] = val
                 else:
-                    logger.error(f'{type(val)} is not {p_type}')
+                    return self.interface_error(f'{type(val)} is not {p_type}')
                     param_map[i] = None
             else:  # TODO: Can do type checks here too
                 param_map[i] = val
 
             if (param_map[i] is None):
-                logger.error(f'Invalid API parameter set - {params}')
-                return False
-        ret = getattr(self, api_name)(**param_map)
+                return self.interface_error(
+                    f'Invalid API parameter set - {params}')
+        try:
+            ret = getattr(self, api_name)(**param_map)
+        except Exception as e:
+            import traceback as tb
+            return self.interface_error(
+                f'Internal Exception: {e}', stack=tb.format_exc())
         if(not is_jsonable(ret)):
-            logger.error(
+            return self.interface_error(
                 str(f'API returns non json object {type(ret)}: {ret}'))
         return ret
 
@@ -198,27 +211,6 @@ class interface():
     def clear_committer(self):
         """Unset committer"""
         self._pub_committer = None
-
-    def get_api_signature(self, api_name):
-        """
-        Checks for valid api name and returns signature
-        """
-        if (not hasattr(self._caller, api_name)):
-            logger.error(f'{api_name} not a valid API')
-            return False
-        else:
-            return signature(getattr(self._caller, api_name))
-
-    def get_api_doc(self, api_name):
-        """
-        Checks for valid api name and returns signature
-        """
-        if (not hasattr(self._caller, api_name)):
-            logger.error(f'{api_name} not a valid API')
-            return False
-        else:
-            doc = getdoc(getattr(self._caller, api_name))
-            return doc
 
     def sync_walker_from_global_sent(self, wlk):
         """Checks for matching code ir between global and spawned walker"""

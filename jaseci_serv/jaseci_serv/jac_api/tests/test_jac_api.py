@@ -66,12 +66,12 @@ class PublicJacApiTests(TestCaseHelper, TestCase):
         payload = {'op': 'walker_summon', 'key': key, 'wlk': walk, 'nd': nd}
         res = self.client.post(
             reverse(f'jac_api:{payload["op"]}'), payload, format='json')
-        self.assertEqual(len(res.data), 0)
+        self.assertEqual(len(res.data['report']), 0)
         key = 'aaaaaaa'
         payload = {'op': 'walker_summon', 'key': key, 'wlk': walk, 'nd': nd}
         res = self.client.post(
             reverse(f'jac_api:{payload["op"]}'), payload, format='json')
-        self.assertEqual(len(res.data), 1)
+        self.assertFalse(res.data['success'])
 
     def test_serverside_sentinel_global_public_access_summon(self):
         """Test master delete operation"""
@@ -108,7 +108,7 @@ class PublicJacApiTests(TestCaseHelper, TestCase):
         payload = {'op': 'walker_summon', 'key': key, 'wlk': walk, 'nd': nd}
         res = self.client.post(
             reverse(f'jac_api:{payload["op"]}'), payload, format='json')
-        self.assertEqual(len(res.data), 0)
+        self.assertEqual(len(res.data['report']), 0)
 
 
 class PrivateJacApiTests(TestCaseHelper, TestCase):
@@ -425,7 +425,7 @@ class PrivateJacApiTests(TestCaseHelper, TestCase):
             reverse(f'jac_api:{payload["op"]}'), payload, format='json')
         payload = {'op': 'walker_execute', 'wlk': walk.id.urn}
         res = self.client.post(reverse(f'jac_api:{payload["op"]}'), payload)
-        nid = res.data[0]['jid']
+        nid = res.data['report'][0]['jid']
         payload = {'op': 'graph_node_set', 'snt': sent.id.urn, 'nd': nid,
                    'ctx': {'apple': 'TEST'}}
         res = self.client.post(
@@ -764,7 +764,7 @@ class PrivateJacApiTests(TestCaseHelper, TestCase):
         payload = {'op': 'walker_run', 'name': 'getter'}
         res = self.sclient.post(
             reverse(f'jac_api:{payload["op"]}'), payload, format='json')
-        self.assertEqual(res.data[0]['max_bot_count'], 10)
+        self.assertEqual(res.data['report'][0]['max_bot_count'], 10)
 
     def test_check_sentinel_set(self):
         """Test that sentinel set works serverside"""
@@ -782,4 +782,67 @@ class PrivateJacApiTests(TestCaseHelper, TestCase):
         payload = {'op': 'walker_run', 'name': 'getter'}
         res = self.sclient.post(
             reverse(f'jac_api:{payload["op"]}'), payload, format='json')
-        self.assertEqual(res.data[0]['max_bot_count'], 10)
+        self.assertEqual(res.data['report'][0]['max_bot_count'], 10)
+
+    def test_action_loads_remote_config_save(self):
+        """Test that sentinel set works serverside"""
+        import jaseci.actions.live_actions as lact
+        import json
+        if (not lact.load_remote_actions('http://js-use-enc')):
+            self.skipTest("external resource not available")
+        payload = {'op': 'config_delete', 'name': 'ACTION_SETS'}
+        res = self.sclient.post(
+            reverse(f'jac_api:{payload["op"]}'), payload, format='json')
+        payload = {'op': 'actions_load_remote', 'url': 'http://js-use-enc'}
+        res = self.sclient.post(
+            reverse(f'jac_api:{payload["op"]}'), payload, format='json')
+        self.assertEqual(res.data, {'success': True})
+        payload = {'op': 'config_get', 'name': 'ACTION_SETS'}
+        res = self.sclient.post(
+            reverse(f'jac_api:{payload["op"]}'), payload, format='json')
+        self.assertEqual(
+            res.data,
+            json.dumps({"local": [], "remote": ["http://js-use-enc"]}))
+
+    def test_jac_walker_level_api_run(self):
+        """Test API for running a walker"""
+        payload = {'op': 'graph_create'}
+        res = self.client.post(reverse(f'jac_api:{payload["op"]}'), payload)
+        payload = {'op': 'sentinel_register', 'name': 'Something',
+                   'code': 'walker testwalker{ std.log("hello"); }', }
+        res = self.client.post(reverse(f'jac_api:{payload["op"]}'), payload,
+                               format='json')
+
+        payload = {}
+        res = self.client.post(
+            reverse('jac_api:walker_list'), payload)
+        self.assertEqual(len(res.data), 1)
+        res = self.client.post(
+            reverse('jac_api:wapi', args=['testwalker']), payload)
+        self.assertTrue(res.data['success'])
+
+    def test_jac_report_status_pluck(self):
+        """Test API for running a walker"""
+        payload = {'op': 'graph_create'}
+        res = self.client.post(reverse(f'jac_api:{payload["op"]}'), payload)
+        payload = {'op': 'sentinel_register', 'name': 'Something',
+                   'code': 'walker ss {report.status = 302; report 4;}', }
+        res = self.client.post(reverse(f'jac_api:{payload["op"]}'), payload,
+                               format='json')
+
+        payload = {}
+        res = self.client.post(
+            reverse('jac_api:walker_list'), payload)
+        self.assertEqual(len(res.data), 1)
+        res = self.client.post(
+            reverse('jac_api:wapi', args=['ss']), payload)
+        self.assertEqual(res.status_code, 302)
+        self.assertTrue(res.data['success'])
+
+    def test_jac_admin_master_allusers(self):
+        """Test API for creating a graph"""
+        payload = {}
+        res = self.sclient.post(
+            reverse('jac_api:master_allusers'), payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.log(res.data)
